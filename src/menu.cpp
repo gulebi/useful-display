@@ -27,6 +27,7 @@ namespace
         uint8_t itemCount;
     };
 
+    extern const Menu rootMenu;
     extern const Menu displayMenu;
     extern const Menu timeMenu;
 
@@ -69,12 +70,12 @@ namespace
     UiMode uiMode = UI_MAIN_SCREEN;
     bool refreshMainScreen = false;
 
-    const Menu *menuStack[MENU_MAX_DEPTH] = {&rootMenu};
-    uint8_t selectionStack[MENU_MAX_DEPTH] = {0};
-    uint8_t scrollStack[MENU_MAX_DEPTH] = {0};
-    uint8_t menuDepth = 0;
+    const Menu *menuStack[MENU_MAX_DEPTH] = {&rootMenu}; // stack of menu pointers for each level, initialized with root menu
+    uint8_t selectionStack[MENU_MAX_DEPTH] = {0};        // selected item index for each menu level
+    uint8_t scrollStack[MENU_MAX_DEPTH] = {0};           // scroll offset for each menu level (index of the first visible item)
+    uint8_t menuDepth = 0;                               // current menu depth (0 = root menu)
 
-    void printPadded(const char *text, uint8_t width)
+    void printPadded(const char *text, uint8_t width = LCD_COLS)
     {
         char line[LCD_COLS + 1];
         uint8_t i = 0;
@@ -136,7 +137,7 @@ namespace
             }
             else
             {
-                printPadded("", LCD_COLS);
+                printPadded("");
             }
         }
     }
@@ -144,27 +145,27 @@ namespace
     void renderEditBrightnessEditor()
     {
         lcd.setCursor(0, 0);
-        printPadded("Edit Brightness", LCD_COLS);
+        printPadded("Edit Brightness");
         lcd.setCursor(0, 1);
-        printPadded("Value: ", LCD_COLS);
+        printPadded("Value: ");
         lcd.setCursor(7, 1);
         lcd.print(brightness);
         lcd.setCursor(0, 2);
-        printPadded("L/R change by 5", LCD_COLS);
+        printPadded("L/R change by 5");
         lcd.setCursor(0, 3);
-        printPadded("Press to save", LCD_COLS);
+        printPadded("Press to save");
     }
 
     void renderTimeEditor()
     {
         lcd.setCursor(0, 0);
-        printPadded("Time Editor", LCD_COLS);
+        printPadded("Time Editor");
         lcd.setCursor(0, 1);
-        printPadded("Not implemented", LCD_COLS);
+        printPadded("Not implemented");
         lcd.setCursor(0, 2);
-        printPadded("Press to go back", LCD_COLS);
+        printPadded("Press to go back");
         lcd.setCursor(0, 3);
-        printPadded("", LCD_COLS);
+        printPadded("");
     }
 
     void navigate(int8_t direction)
