@@ -1,13 +1,7 @@
-#include <Arduino.h>
-#include <LiquidCrystal_I2C.h>
-#include <EncButton.h>
+#include "menu.h"
 
-LiquidCrystal_I2C lcd(0x27, 20, 4);
-EncButton enc(2, 3, 4);
-
-#define BACKLIGHT_PIN 10
-#define BACKLIGHT_DEFAULT_BRIGHTNESS 125
-
+namespace
+{
 enum UiMode
 {
     UI_MAIN_SCREEN,
@@ -33,14 +27,13 @@ struct Menu
     uint8_t itemCount;
 };
 
+extern const Menu displayMenu;
+extern const Menu timeMenu;
+
 void actionBack();
 void actionBackToMain();
 void actionEditBrightness();
 void actionUpdateTime();
-
-extern const Menu rootMenu;
-extern const Menu displayMenu;
-extern const Menu timeMenu;
 
 const MenuItem rootItems[] = {
     {"Back", nullptr, actionBackToMain},
@@ -70,30 +63,40 @@ const uint8_t LCD_ROWS = 4;
 const uint8_t MENU_MAX_DEPTH = 5;
 
 UiMode uiMode = UI_MAIN_SCREEN;
+bool refreshMainScreen = false;
 
-int brightness = BACKLIGHT_DEFAULT_BRIGHTNESS;
+const Menu *menuStack[MENU_MAX_DEPTH] = {&rootMenu};
+uint8_t selectionStack[MENU_MAX_DEPTH] = {0};
+uint8_t scrollStack[MENU_MAX_DEPTH] = {0};
+uint8_t menuDepth = 0;
 
-const Menu *menuStack[MENU_MAX_DEPTH] = {&rootMenu}; // stack of menu pointers for each level, initialized with root menu
-uint8_t selectionStack[MENU_MAX_DEPTH] = {0};        // selected item index for each menu level
-uint8_t scrollStack[MENU_MAX_DEPTH] = {0};           // scroll offset for each menu level (index of the first visible item)
-uint8_t menuDepth = 0;                               // current menu depth (0 = root menu)
-
-void printPadded(const char *text)
+void printPadded(const char *text, uint8_t width)
 {
     char line[LCD_COLS + 1];
     uint8_t i = 0;
-    while (i < LCD_COLS && text[i] != '\0')
+
+    while (i < width && text[i] != '\0')
     {
         line[i] = text[i];
         i++;
     }
-    while (i < LCD_COLS)
+
+    while (i < width)
     {
         line[i] = ' ';
         i++;
     }
-    line[LCD_COLS] = '\0';
+
+    line[width] = '\0';
     lcd.print(line);
+}
+
+void resetMenuRoot()
+{
+    menuDepth = 0;
+    menuStack[0] = &rootMenu;
+    selectionStack[0] = 0;
+    scrollStack[0] = 0;
 }
 
 const Menu *currentMenu()
@@ -117,35 +120,19 @@ void renderMenu()
     uint8_t selected = currentSelection();
     uint8_t scroll = currentScroll();
 
-    // print menu items
     for (uint8_t row = 0; row < LCD_ROWS; row++)
     {
-        lcd.setCursor(2, row);
         uint8_t itemIndex = scroll + row;
-
-        if (itemIndex < menu->itemCount)
-        {
-            printPadded(menu->items[itemIndex].title);
-        }
-        else
-        {
-            printPadded("");
-        }
-    }
-
-    // print selector
-    for (uint8_t row = 0; row < LCD_ROWS; row++)
-    {
         lcd.setCursor(0, row);
-        uint8_t itemIndex = scroll + row;
 
         if (itemIndex < menu->itemCount)
         {
-            lcd.print(itemIndex == selected ? ">" : " ");
+            lcd.print(itemIndex == selected ? "> " : "  ");
+            printPadded(menu->items[itemIndex].title, LCD_COLS - 2);
         }
         else
         {
-            lcd.print(" ");
+            printPadded("", LCD_COLS);
         }
     }
 }
@@ -154,38 +141,25 @@ void renderBrightnessEditor()
 {
     lcd.clear();
     lcd.setCursor(0, 0);
-    printPadded("Brightness");
+    printPadded("Brightness", LCD_COLS);
     lcd.setCursor(0, 1);
     lcd.print("Value: ");
     lcd.print(brightness);
     lcd.setCursor(0, 2);
-    printPadded("L/R change by 5");
+    printPadded("L/R change by 5", LCD_COLS);
     lcd.setCursor(0, 3);
-    printPadded("Press to save");
+    printPadded("Press to save", LCD_COLS);
 }
 
 void renderTimeEditor()
 {
     lcd.clear();
     lcd.setCursor(0, 0);
-    printPadded("Time Editor");
+    printPadded("Time Editor", LCD_COLS);
     lcd.setCursor(0, 1);
-    printPadded("Not implemented");
+    printPadded("Not implemented", LCD_COLS);
     lcd.setCursor(0, 2);
-    printPadded("Press to go back");
-}
-
-void renderMainMenu()
-{
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    printPadded("Welcome to");
-    lcd.setCursor(0, 1);
-    printPadded("Useful Display");
-    lcd.setCursor(0, 2);
-    printPadded("Press to open menu");
-    lcd.setCursor(0, 3);
-    printPadded("");
+    printPadded("Press to go back", LCD_COLS);
 }
 
 void navigate(int8_t direction)
@@ -227,6 +201,7 @@ void enterMenu(const Menu *child)
     menuDepth++;
     menuStack[menuDepth] = child;
     selectionStack[menuDepth] = 0;
+    scrollStack[menuDepth] = 0;
     renderMenu();
 }
 
@@ -258,6 +233,13 @@ void runCurrentItem()
     }
 }
 
+void openMenu()
+{
+    resetMenuRoot();
+    uiMode = UI_MENU;
+    renderMenu();
+}
+
 void actionBack()
 {
     goBack();
@@ -265,8 +247,9 @@ void actionBack()
 
 void actionBackToMain()
 {
+    resetMenuRoot();
     uiMode = UI_MAIN_SCREEN;
-    renderMainMenu();
+    refreshMainScreen = true;
 }
 
 void actionEditBrightness()
@@ -280,30 +263,25 @@ void actionUpdateTime()
     uiMode = UI_EDIT_TIME;
     renderTimeEditor();
 }
+} // namespace
 
-void setup()
+bool menuIsActive()
 {
-    pinMode(BACKLIGHT_PIN, OUTPUT);
-    lcd.init();
-    lcd.backlight();
-
-    analogWrite(BACKLIGHT_PIN, brightness);
-
-    renderMainMenu();
+    return uiMode != UI_MAIN_SCREEN;
 }
 
-void loop()
+bool menuTick()
 {
-    enc.tick();
+    refreshMainScreen = false;
 
     if (uiMode == UI_MAIN_SCREEN)
     {
         if (enc.press())
         {
-            uiMode = UI_MENU;
-            renderMenu();
+            openMenu();
         }
-        return;
+
+        return false;
     }
 
     if (uiMode == UI_MENU)
@@ -322,7 +300,8 @@ void loop()
         {
             runCurrentItem();
         }
-        return;
+
+        return refreshMainScreen;
     }
 
     if (uiMode == UI_EDIT_BRIGHTNESS)
@@ -354,6 +333,8 @@ void loop()
             uiMode = UI_MENU;
             renderMenu();
         }
+
+        return false;
     }
 
     if (uiMode == UI_EDIT_TIME)
@@ -364,4 +345,6 @@ void loop()
             renderMenu();
         }
     }
+
+    return false;
 }

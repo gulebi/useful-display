@@ -3,8 +3,17 @@
 #include <EncButton.h>
 #include <TimeLib.h>
 
+#include "menu.h"
+
+extern const uint8_t BACKLIGHT_PIN = 10;
+extern const int BACKLIGHT_DEFAULT_BRIGHTNESS = 120;
+
+const uint8_t SERIAL_CMD_NAME_LEN = 7;
+const char DATE_SEPARATOR = '.'; // '.' or '/' or '-'
+
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 EncButton enc(2, 3, 4);
+int brightness = BACKLIGHT_DEFAULT_BRIGHTNESS;
 
 void setSystemTime();
 void renderTime(uint8_t hours, uint8_t minutes);
@@ -20,10 +29,6 @@ void renderDayOfWeek(uint8_t dayOfWeek);
 void renderMainScreen();
 void updateSerial();
 
-#define BACKLIGHT_PIN 10
-#define BACKLIGHT_DEFAULT_BRIGHTNESS 128
-#define SERIAL_CMD_NAME_LEN 7
-
 byte customChar0[8] = {B11111, B00000, B00000, B00000, B00000, B00000, B00000, B00000};
 byte customChar1[8] = {B00000, B00000, B00000, B00000, B00000, B00000, B00000, B11111};
 byte customChar2[8] = {B11111, B00011, B00011, B00011, B00011, B00011, B00011, B11111};
@@ -35,12 +40,10 @@ byte customChar7[8] = {B11000, B11000, B11000, B11000, B11000, B11000, B11000, B
 
 byte bold_digits[10][4] = {{4, 5, 7, 5}, {254, 5, 254, 5}, {6, 2, 3, 6}, {0, 2, 1, 2}, {7, 1, 254, 5}, {3, 6, 6, 2}, {3, 6, 3, 2}, {0, 2, 254, 5}, {3, 2, 3, 2}, {3, 2, 6, 2}};
 
-int brightness = BACKLIGHT_DEFAULT_BRIGHTNESS;
-
-int cpuLoad = 0;
-int cpuTemp = 0;
-int gpuUsage = 0;
-int gpuTemp = 0;
+uint8_t cpuLoad = 0;
+uint8_t cpuTemp = 0;
+uint8_t gpuUsage = 0;
+uint8_t gpuTemp = 0;
 
 bool dotsVisible = true;
 
@@ -54,6 +57,7 @@ void setup()
     lcd.init();
     lcd.backlight();
 
+    pinMode(BACKLIGHT_PIN, OUTPUT);
     analogWrite(BACKLIGHT_PIN, brightness);
 
     setSystemTime();
@@ -69,9 +73,11 @@ void loop()
 {
     enc.tick();
 
+    bool shouldRefreshMainScreen = menuTick();
+
     unsigned long currentMillis = millis();
 
-    if (currentMillis - previousMillis >= 1000)
+    if (!menuIsActive() && currentMillis - previousMillis >= 1000)
     {
         previousMillis = currentMillis;
         dotsVisible = !dotsVisible;
@@ -81,11 +87,17 @@ void loop()
         renderDayOfWeek(weekday());
     }
 
+    if (shouldRefreshMainScreen)
+    {
+        renderMainScreen();
+    }
+
     updateSerial();
 }
 
 void renderMainScreen()
 {
+    lcd.clear();
     renderTime(hour(), minute());
     renderDate(day(), month());
     renderDayOfWeek(weekday());
@@ -247,7 +259,7 @@ void renderDate(uint8_t day, uint8_t month)
         lcd.print("0");
     }
     lcd.print(day);
-    lcd.write(46); // dot char
+    lcd.write(DATE_SEPARATOR);
     if (month < 10)
     {
         lcd.print("0");
@@ -283,24 +295,18 @@ bool parseCommand(const char *frame)
     if (strncmp(frame, "cpuTemp", SERIAL_CMD_NAME_LEN) == 0)
     {
         cpuTemp = val;
-        renderTemp(cpuTemp, 2);
     }
     else if (strncmp(frame, "gpuTemp", SERIAL_CMD_NAME_LEN) == 0)
     {
         gpuTemp = val;
-        renderTemp(gpuTemp, 3);
     }
     else if (strncmp(frame, "cpuLoad", SERIAL_CMD_NAME_LEN) == 0)
     {
         cpuLoad = val;
-        renderLoadingBar(cpuLoad, 2);
-        renderLoad(cpuLoad, 2);
     }
     else if (strncmp(frame, "gpuLoad", SERIAL_CMD_NAME_LEN) == 0)
     {
         gpuUsage = val;
-        renderLoadingBar(gpuUsage, 3);
-        renderLoad(gpuUsage, 3);
     }
     else
         return false;
@@ -312,6 +318,7 @@ void updateSerial()
 {
     static char buf[SERIAL_CMD_NAME_LEN + 9];
     static uint8_t pos = 0;
+    bool renderNow = !menuIsActive();
 
     while (Serial.available())
     {
@@ -319,7 +326,27 @@ void updateSerial()
         if (c == ';')
         {
             buf[pos] = '\0';
-            parseCommand(buf);
+            if (parseCommand(buf) && renderNow)
+            {
+                if (strncmp(buf, "cpuTemp", SERIAL_CMD_NAME_LEN) == 0)
+                {
+                    renderTemp(cpuTemp, 2);
+                }
+                else if (strncmp(buf, "gpuTemp", SERIAL_CMD_NAME_LEN) == 0)
+                {
+                    renderTemp(gpuTemp, 3);
+                }
+                else if (strncmp(buf, "cpuLoad", SERIAL_CMD_NAME_LEN) == 0)
+                {
+                    renderLoadingBar(cpuLoad, 2);
+                    renderLoad(cpuLoad, 2);
+                }
+                else if (strncmp(buf, "gpuLoad", SERIAL_CMD_NAME_LEN) == 0)
+                {
+                    renderLoadingBar(gpuUsage, 3);
+                    renderLoad(gpuUsage, 3);
+                }
+            }
             pos = 0;
         }
         else if (c != '\r' && c != '\n')
