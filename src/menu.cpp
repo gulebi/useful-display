@@ -32,21 +32,25 @@ namespace
 
     void actionBack();
     void actionBackToMain();
-    void actionEditBrightness();
+    void actionBrightnessOff();
+    void actionBrightnessFull();
+    void actionBrightnessSet();
     void actionUpdateTime();
 
     const MenuItem rootItems[] = {
         {"Back", nullptr, actionBackToMain},
         {"Display", &displayMenu, nullptr},
-        {"Display2", &displayMenu, nullptr},
+        {"Display Duplicate", &displayMenu, nullptr},
         {"Time", &timeMenu, nullptr},
-        {"Time2", &timeMenu, nullptr},
-        {"Time3", &timeMenu, nullptr},
+        {"Time Duplicate", &timeMenu, nullptr},
+        {"Time Duplicate 2", &timeMenu, nullptr},
     };
 
     const MenuItem displayItems[] = {
         {"Back", nullptr, actionBack},
-        {"Set Brightness", nullptr, actionEditBrightness},
+        {"Brightness Set", nullptr, actionBrightnessSet},
+        {"Brightness Off", nullptr, actionBrightnessOff},
+        {"Brightness Full", nullptr, actionBrightnessFull},
     };
 
     const MenuItem timeItems[] = {
@@ -137,13 +141,13 @@ namespace
         }
     }
 
-    void renderSetBrightnessEditor()
+    void renderEditBrightnessEditor()
     {
-        lcd.clear();
         lcd.setCursor(0, 0);
-        printPadded("Set Brightness", LCD_COLS);
+        printPadded("Edit Brightness", LCD_COLS);
         lcd.setCursor(0, 1);
-        lcd.print("Value: ");
+        printPadded("Value: ", LCD_COLS);
+        lcd.setCursor(7, 1);
         lcd.print(brightness);
         lcd.setCursor(0, 2);
         printPadded("L/R change by 5", LCD_COLS);
@@ -153,13 +157,14 @@ namespace
 
     void renderTimeEditor()
     {
-        lcd.clear();
         lcd.setCursor(0, 0);
         printPadded("Time Editor", LCD_COLS);
         lcd.setCursor(0, 1);
         printPadded("Not implemented", LCD_COLS);
         lcd.setCursor(0, 2);
         printPadded("Press to go back", LCD_COLS);
+        lcd.setCursor(0, 3);
+        printPadded("", LCD_COLS);
     }
 
     void navigate(int8_t direction)
@@ -252,16 +257,30 @@ namespace
         refreshMainScreen = true;
     }
 
-    void actionEditBrightness()
+    void actionBrightnessSet()
     {
         uiMode = UI_EDIT_BRIGHTNESS;
-        renderSetBrightnessEditor();
+        lcd.clear();
+        renderEditBrightnessEditor();
     }
 
     void actionUpdateTime()
     {
         uiMode = UI_EDIT_TIME;
+        lcd.clear();
         renderTimeEditor();
+    }
+
+    void actionBrightnessOff()
+    {
+        brightness = 0;
+        analogWrite(BACKLIGHT_PIN, brightness);
+    }
+
+    void actionBrightnessFull()
+    {
+        brightness = 255;
+        analogWrite(BACKLIGHT_PIN, brightness);
     }
 } // namespace
 
@@ -314,7 +333,7 @@ bool menuTick()
                 brightness = 0;
             }
             analogWrite(BACKLIGHT_PIN, brightness);
-            renderSetBrightnessEditor();
+            renderEditBrightnessEditor();
         }
 
         if (enc.left())
@@ -325,7 +344,7 @@ bool menuTick()
                 brightness = 255;
             }
             analogWrite(BACKLIGHT_PIN, brightness);
-            renderSetBrightnessEditor();
+            renderEditBrightnessEditor();
         }
 
         if (enc.press())
