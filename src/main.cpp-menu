@@ -1,0 +1,367 @@
+#include <Arduino.h>
+#include <LiquidCrystal_I2C.h>
+#include <EncButton.h>
+
+LiquidCrystal_I2C lcd(0x27, 20, 4);
+EncButton enc(2, 3, 4);
+
+#define BACKLIGHT_PIN 10
+#define BACKLIGHT_DEFAULT_BRIGHTNESS 125
+
+enum UiMode
+{
+    UI_MAIN_SCREEN,
+    UI_MENU,
+    UI_EDIT_BRIGHTNESS,
+    UI_EDIT_TIME,
+};
+
+struct Menu;
+typedef void (*MenuAction)();
+
+struct MenuItem
+{
+    const char *title;
+    const Menu *child;
+    MenuAction action;
+};
+
+struct Menu
+{
+    const char *title;
+    const MenuItem *items;
+    uint8_t itemCount;
+};
+
+void actionBack();
+void actionBackToMain();
+void actionEditBrightness();
+void actionUpdateTime();
+
+extern const Menu rootMenu;
+extern const Menu displayMenu;
+extern const Menu timeMenu;
+
+const MenuItem rootItems[] = {
+    {"Back", nullptr, actionBackToMain},
+    {"Display", &displayMenu, nullptr},
+    {"Display2", &displayMenu, nullptr},
+    {"Time", &timeMenu, nullptr},
+    {"Time2", &timeMenu, nullptr},
+    {"Time3", &timeMenu, nullptr},
+};
+
+const MenuItem displayItems[] = {
+    {"Back", nullptr, actionBack},
+    {"Brightness", nullptr, actionEditBrightness},
+};
+
+const MenuItem timeItems[] = {
+    {"Back", nullptr, actionBack},
+    {"Update Time", nullptr, actionUpdateTime},
+};
+
+const Menu rootMenu = {"Main", rootItems, (uint8_t)(sizeof(rootItems) / sizeof(rootItems[0]))};
+const Menu displayMenu = {"Display", displayItems, (uint8_t)(sizeof(displayItems) / sizeof(displayItems[0]))};
+const Menu timeMenu = {"Time", timeItems, (uint8_t)(sizeof(timeItems) / sizeof(timeItems[0]))};
+
+const uint8_t LCD_COLS = 20;
+const uint8_t LCD_ROWS = 4;
+const uint8_t MENU_MAX_DEPTH = 5;
+
+UiMode uiMode = UI_MAIN_SCREEN;
+
+int brightness = BACKLIGHT_DEFAULT_BRIGHTNESS;
+
+const Menu *menuStack[MENU_MAX_DEPTH] = {&rootMenu}; // stack of menu pointers for each level, initialized with root menu
+uint8_t selectionStack[MENU_MAX_DEPTH] = {0};        // selected item index for each menu level
+uint8_t scrollStack[MENU_MAX_DEPTH] = {0};           // scroll offset for each menu level (index of the first visible item)
+uint8_t menuDepth = 0;                               // current menu depth (0 = root menu)
+
+void printPadded(const char *text)
+{
+    char line[LCD_COLS + 1];
+    uint8_t i = 0;
+    while (i < LCD_COLS && text[i] != '\0')
+    {
+        line[i] = text[i];
+        i++;
+    }
+    while (i < LCD_COLS)
+    {
+        line[i] = ' ';
+        i++;
+    }
+    line[LCD_COLS] = '\0';
+    lcd.print(line);
+}
+
+const Menu *currentMenu()
+{
+    return menuStack[menuDepth];
+}
+
+uint8_t &currentSelection()
+{
+    return selectionStack[menuDepth];
+}
+
+uint8_t &currentScroll()
+{
+    return scrollStack[menuDepth];
+}
+
+void renderMenu()
+{
+    const Menu *menu = currentMenu();
+    uint8_t selected = currentSelection();
+    uint8_t scroll = currentScroll();
+
+    // print menu items
+    for (uint8_t row = 0; row < LCD_ROWS; row++)
+    {
+        lcd.setCursor(2, row);
+        uint8_t itemIndex = scroll + row;
+
+        if (itemIndex < menu->itemCount)
+        {
+            printPadded(menu->items[itemIndex].title);
+        }
+        else
+        {
+            printPadded("");
+        }
+    }
+
+    // print selector
+    for (uint8_t row = 0; row < LCD_ROWS; row++)
+    {
+        lcd.setCursor(0, row);
+        uint8_t itemIndex = scroll + row;
+
+        if (itemIndex < menu->itemCount)
+        {
+            lcd.print(itemIndex == selected ? ">" : " ");
+        }
+        else
+        {
+            lcd.print(" ");
+        }
+    }
+}
+
+void renderBrightnessEditor()
+{
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    printPadded("Brightness");
+    lcd.setCursor(0, 1);
+    lcd.print("Value: ");
+    lcd.print(brightness);
+    lcd.setCursor(0, 2);
+    printPadded("L/R change by 5");
+    lcd.setCursor(0, 3);
+    printPadded("Press to save");
+}
+
+void renderTimeEditor()
+{
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    printPadded("Time Editor");
+    lcd.setCursor(0, 1);
+    printPadded("Not implemented");
+    lcd.setCursor(0, 2);
+    printPadded("Press to go back");
+}
+
+void renderMainMenu()
+{
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    printPadded("Welcome to");
+    lcd.setCursor(0, 1);
+    printPadded("Useful Display");
+    lcd.setCursor(0, 2);
+    printPadded("Press to open menu");
+    lcd.setCursor(0, 3);
+    printPadded("");
+}
+
+void navigate(int8_t direction)
+{
+    const Menu *menu = currentMenu();
+    uint8_t selected = currentSelection();
+    uint8_t scroll = currentScroll();
+
+    if (direction < 0)
+    {
+        selected = (selected == 0) ? menu->itemCount - 1 : selected - 1;
+    }
+    else
+    {
+        selected = (selected + 1) % menu->itemCount;
+    }
+
+    if (selected < scroll)
+    {
+        scroll = selected;
+    }
+    else if (selected > scroll + LCD_ROWS - 1)
+    {
+        scroll = selected - LCD_ROWS + 1;
+    }
+
+    currentSelection() = selected;
+    currentScroll() = scroll;
+    renderMenu();
+}
+
+void enterMenu(const Menu *child)
+{
+    if (menuDepth + 1 >= MENU_MAX_DEPTH)
+    {
+        return;
+    }
+
+    menuDepth++;
+    menuStack[menuDepth] = child;
+    selectionStack[menuDepth] = 0;
+    renderMenu();
+}
+
+void goBack()
+{
+    if (menuDepth == 0)
+    {
+        return;
+    }
+
+    menuDepth--;
+    renderMenu();
+}
+
+void runCurrentItem()
+{
+    const Menu *menu = currentMenu();
+    const MenuItem &item = menu->items[currentSelection()];
+
+    if (item.child != nullptr)
+    {
+        enterMenu(item.child);
+        return;
+    }
+
+    if (item.action != nullptr)
+    {
+        item.action();
+    }
+}
+
+void actionBack()
+{
+    goBack();
+}
+
+void actionBackToMain()
+{
+    uiMode = UI_MAIN_SCREEN;
+    renderMainMenu();
+}
+
+void actionEditBrightness()
+{
+    uiMode = UI_EDIT_BRIGHTNESS;
+    renderBrightnessEditor();
+}
+
+void actionUpdateTime()
+{
+    uiMode = UI_EDIT_TIME;
+    renderTimeEditor();
+}
+
+void setup()
+{
+    pinMode(BACKLIGHT_PIN, OUTPUT);
+    lcd.init();
+    lcd.backlight();
+
+    analogWrite(BACKLIGHT_PIN, brightness);
+
+    renderMainMenu();
+}
+
+void loop()
+{
+    enc.tick();
+
+    if (uiMode == UI_MAIN_SCREEN)
+    {
+        if (enc.press())
+        {
+            uiMode = UI_MENU;
+            renderMenu();
+        }
+        return;
+    }
+
+    if (uiMode == UI_MENU)
+    {
+        if (enc.left())
+        {
+            navigate(1);
+        }
+
+        if (enc.right())
+        {
+            navigate(-1);
+        }
+
+        if (enc.press())
+        {
+            runCurrentItem();
+        }
+        return;
+    }
+
+    if (uiMode == UI_EDIT_BRIGHTNESS)
+    {
+        if (enc.right())
+        {
+            brightness -= 5;
+            if (brightness < 0)
+            {
+                brightness = 0;
+            }
+            analogWrite(BACKLIGHT_PIN, brightness);
+            renderBrightnessEditor();
+        }
+
+        if (enc.left())
+        {
+            brightness += 5;
+            if (brightness > 255)
+            {
+                brightness = 255;
+            }
+            analogWrite(BACKLIGHT_PIN, brightness);
+            renderBrightnessEditor();
+        }
+
+        if (enc.press())
+        {
+            uiMode = UI_MENU;
+            renderMenu();
+        }
+    }
+
+    if (uiMode == UI_EDIT_TIME)
+    {
+        if (enc.press())
+        {
+            uiMode = UI_MENU;
+            renderMenu();
+        }
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "folders": [
+		{
+			"name": "useful-display",
+			"path": "."
+		}
+	],
+    "settings": {
+        "cSpell.words": [],
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    }
+}
