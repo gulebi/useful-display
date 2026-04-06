@@ -8,7 +8,7 @@
 extern const uint8_t BACKLIGHT_PIN = 10;
 extern const int BACKLIGHT_DEFAULT_BRIGHTNESS = 120;
 
-const uint8_t SERIAL_CMD_NAME_LEN = 7;
+const uint8_t SERIAL_CMD_NAME_LEN = 4;
 const char DATE_SEPARATOR = '.'; // '.' or '/' or '-'
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);
@@ -66,7 +66,7 @@ void setup()
 
     renderMainScreen();
 
-    Serial.println("Setup complete");
+    Serial.println("useful-display-ready");
 }
 
 void loop()
@@ -277,46 +277,27 @@ void renderDayOfWeek(uint8_t dayOfWeek)
     }
 }
 
-bool parseCommand(const char *frame)
+long parseCommand(const char *frame)
 {
     if (frame[SERIAL_CMD_NAME_LEN] != ':')
-        return false;
+        return -1;
 
     // Parse bool value: "true"->1, "false"->0, else int
     const char *rawVal = frame + SERIAL_CMD_NAME_LEN + 1;
-    int val;
+    long val;
     if (strncmp(rawVal, "true", 4) == 0)
         val = 1;
     else if (strncmp(rawVal, "false", 5) == 0)
         val = 0;
     else
-        val = atoi(rawVal);
+        val = atol(rawVal);
 
-    if (strncmp(frame, "cpuTemp", SERIAL_CMD_NAME_LEN) == 0)
-    {
-        cpuTemp = val;
-    }
-    else if (strncmp(frame, "gpuTemp", SERIAL_CMD_NAME_LEN) == 0)
-    {
-        gpuTemp = val;
-    }
-    else if (strncmp(frame, "cpuLoad", SERIAL_CMD_NAME_LEN) == 0)
-    {
-        cpuLoad = val;
-    }
-    else if (strncmp(frame, "gpuLoad", SERIAL_CMD_NAME_LEN) == 0)
-    {
-        gpuUsage = val;
-    }
-    else
-        return false;
-
-    return true;
+    return val;
 }
 
 void updateSerial()
 {
-    static char buf[SERIAL_CMD_NAME_LEN + 9];
+    static char buf[SERIAL_CMD_NAME_LEN + 16];
     static uint8_t pos = 0;
     bool renderNow = !menuIsActive();
 
@@ -326,25 +307,42 @@ void updateSerial()
         if (c == ';')
         {
             buf[pos] = '\0';
-            if (parseCommand(buf) && renderNow)
+            if (renderNow)
             {
-                if (strncmp(buf, "cpuTemp", SERIAL_CMD_NAME_LEN) == 0)
+                long val = parseCommand(buf);
+                if (val == -1)
                 {
+                    pos = 0;
+                    continue; // skip this frame, keep reading
+                }
+                if (strncmp(buf, "cput", SERIAL_CMD_NAME_LEN) == 0)
+                {
+                    cpuTemp = val;
                     renderTemp(cpuTemp, 2);
                 }
-                else if (strncmp(buf, "gpuTemp", SERIAL_CMD_NAME_LEN) == 0)
+                else if (strncmp(buf, "gput", SERIAL_CMD_NAME_LEN) == 0)
                 {
+                    gpuTemp = val;
                     renderTemp(gpuTemp, 3);
                 }
-                else if (strncmp(buf, "cpuLoad", SERIAL_CMD_NAME_LEN) == 0)
+                else if (strncmp(buf, "cpul", SERIAL_CMD_NAME_LEN) == 0)
                 {
+                    cpuLoad = val;
                     renderLoadingBar(cpuLoad, 2);
                     renderLoad(cpuLoad, 2);
                 }
-                else if (strncmp(buf, "gpuLoad", SERIAL_CMD_NAME_LEN) == 0)
+                else if (strncmp(buf, "gpul", SERIAL_CMD_NAME_LEN) == 0)
                 {
+                    gpuUsage = val;
                     renderLoadingBar(gpuUsage, 3);
                     renderLoad(gpuUsage, 3);
+                }
+                else if (strncmp(buf, "unix", SERIAL_CMD_NAME_LEN) == 0)
+                {
+                    setTime(val);
+                    renderTime(hour(), minute());
+                    renderDate(day(), month());
+                    renderDayOfWeek(weekday());
                 }
             }
             pos = 0;
