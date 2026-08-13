@@ -1,4 +1,5 @@
 #include "menu.h"
+#include <TimeLib.h>
 
 namespace
 {
@@ -8,6 +9,7 @@ namespace
         UI_MENU,
         UI_EDIT_BRIGHTNESS,
         UI_EDIT_TIME,
+        UI_EDIT_DATE,
     };
 
     struct Menu;
@@ -30,21 +32,25 @@ namespace
     extern const Menu rootMenu;
     extern const Menu displayMenu;
     extern const Menu timeMenu;
+    extern const Menu dateMenu;
 
     void actionBack();
     void actionBackToMain();
     void actionBrightnessOff();
     void actionBrightnessFull();
     void actionBrightnessSet();
-    void actionUpdateTime();
+    void actionChangeTime();
+    void actionChangeDate();
 
     const MenuItem rootItems[] = {
         {"Back", nullptr, actionBackToMain},
         {"Display", &displayMenu, nullptr},
         {"Display Duplicate", &displayMenu, nullptr},
         {"Time", &timeMenu, nullptr},
+        {"Date", &dateMenu, nullptr},
         {"Time Duplicate", &timeMenu, nullptr},
         {"Time Duplicate 2", &timeMenu, nullptr},
+
     };
 
     const MenuItem displayItems[] = {
@@ -56,12 +62,18 @@ namespace
 
     const MenuItem timeItems[] = {
         {"Back", nullptr, actionBack},
-        {"Update Time", nullptr, actionUpdateTime},
+        {"Change Time", nullptr, actionChangeTime},
+    };
+
+    const MenuItem dateItems[] = {
+        {"Back", nullptr, actionBack},
+        {"Change Date", nullptr, actionChangeDate},
     };
 
     const Menu rootMenu = {"Main", rootItems, (uint8_t)(sizeof(rootItems) / sizeof(rootItems[0]))};
     const Menu displayMenu = {"Display", displayItems, (uint8_t)(sizeof(displayItems) / sizeof(displayItems[0]))};
     const Menu timeMenu = {"Time", timeItems, (uint8_t)(sizeof(timeItems) / sizeof(timeItems[0]))};
+    const Menu dateMenu = {"Date", dateItems, (uint8_t)(sizeof(dateItems) / sizeof(dateItems[0]))};
 
     const uint8_t LCD_COLS = 20;
     const uint8_t LCD_ROWS = 4;
@@ -156,10 +168,41 @@ namespace
         printPadded("Press to save");
     }
 
-    void renderTimeEditor()
+    void renderTimeEditor(uint8_t stage = 0, int hourValue = hour(), int minuteValue = minute(), int secondValue = second())
     {
         lcd.setCursor(0, 0);
         printPadded("Time Editor");
+        lcd.setCursor(0, 1);
+        char buf[8];
+        sprintf(buf, "%02d:%02d:%02d", hourValue, minuteValue, secondValue);
+        printPadded(buf);
+        if (stage == 0)
+        {
+            lcd.setCursor(0, 2);
+            printPadded("L/R to change hour");
+            lcd.setCursor(0, 3);
+            printPadded("Press to set minutes");
+        }
+        else if (stage == 1)
+        {
+            lcd.setCursor(0, 2);
+            printPadded("L/R to change minute");
+            lcd.setCursor(0, 3);
+            printPadded("Press to set seconds");
+        }
+        else if (stage == 2)
+        {
+            lcd.setCursor(0, 2);
+            printPadded("L/R to change second");
+            lcd.setCursor(0, 3);
+            printPadded("Press to save");
+        }
+    }
+
+    void renderDateEditor()
+    {
+        lcd.setCursor(0, 0);
+        printPadded("Date Editor");
         lcd.setCursor(0, 1);
         printPadded("Not implemented");
         lcd.setCursor(0, 2);
@@ -265,7 +308,7 @@ namespace
         renderEditBrightnessEditor();
     }
 
-    void actionUpdateTime()
+    void actionChangeTime()
     {
         uiMode = UI_EDIT_TIME;
         lcd.clear();
@@ -282,6 +325,13 @@ namespace
     {
         brightness = 255;
         analogWrite(BACKLIGHT_PIN, brightness);
+    }
+
+    void actionChangeDate()
+    {
+        uiMode = UI_EDIT_DATE;
+        lcd.clear();
+        renderDateEditor();
     }
 } // namespace
 
@@ -358,6 +408,74 @@ bool menuTick()
     }
 
     if (uiMode == UI_EDIT_TIME)
+    {
+        static uint8_t timeStage = 0; // 0 = editing hour, 1 = editing minute, 2 = editing second
+        static int lastHour = hour();
+        static int lastMinute = minute();
+        static int lastSecond = second();
+
+        if (enc.right())
+        {
+            if (timeStage == 0)
+            {
+                lastHour = (lastHour - 1 + 24) % 24;
+                renderTimeEditor(timeStage, lastHour, lastMinute, lastSecond);
+            }
+            else if (timeStage == 1)
+            {
+                lastMinute = (lastMinute - 1 + 60) % 60;
+                renderTimeEditor(timeStage, lastHour, lastMinute, lastSecond);
+            }
+            else if (timeStage == 2)
+            {
+                lastSecond = (lastSecond - 1 + 60) % 60;
+                renderTimeEditor(timeStage, lastHour, lastMinute, lastSecond);
+            }
+        }
+
+        if (enc.left())
+        {
+            if (timeStage == 0)
+            {
+                lastHour = (lastHour + 1) % 24;
+                renderTimeEditor(timeStage, lastHour, lastMinute, lastSecond);
+            }
+            else if (timeStage == 1)
+            {
+                lastMinute = (lastMinute + 1) % 60;
+                renderTimeEditor(timeStage, lastHour, lastMinute, lastSecond);
+            }
+            else if (timeStage == 2)
+            {
+                lastSecond = (lastSecond + 1) % 60;
+                renderTimeEditor(timeStage, lastHour, lastMinute, lastSecond);
+            }
+        }
+
+        if (enc.press())
+        {
+            setTime(lastHour, lastMinute, lastSecond, day(), month(), year());
+
+            if (timeStage == 0)
+            {
+                timeStage = 1;
+                renderTimeEditor(timeStage, lastHour, lastMinute, lastSecond);
+            }
+            else if (timeStage == 1)
+            {
+                timeStage = 2;
+                renderTimeEditor(timeStage, lastHour, lastMinute, lastSecond);
+            }
+            else if (timeStage == 2)
+            {
+                timeStage = 0;
+                uiMode = UI_MENU;
+                renderMenu();
+            }
+        }
+    }
+
+    if (uiMode == UI_EDIT_DATE)
     {
         if (enc.press())
         {

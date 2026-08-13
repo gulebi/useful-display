@@ -210,7 +210,6 @@ void renderTemp(uint8_t temp, uint8_t row)
 }
 
 void renderLoad(uint8_t percent, uint8_t row)
-
 {
     percent = min(percent, 99);
     lcd.setCursor(17, row);
