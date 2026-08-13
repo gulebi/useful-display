@@ -199,16 +199,35 @@ namespace
         }
     }
 
-    void renderDateEditor()
+    void renderDateEditor(uint8_t stage = 0, int dayValue = day(), int monthValue = month(), int yearValue = year())
     {
         lcd.setCursor(0, 0);
         printPadded("Date Editor");
         lcd.setCursor(0, 1);
-        printPadded("Not implemented");
-        lcd.setCursor(0, 2);
-        printPadded("Press to go back");
-        lcd.setCursor(0, 3);
-        printPadded("");
+        char buf[10];
+        sprintf(buf, "%02d.%02d.%04d", dayValue, monthValue, yearValue);
+        printPadded(buf);
+        if (stage == 0)
+        {
+            lcd.setCursor(0, 2);
+            printPadded("L/R to change day");
+            lcd.setCursor(0, 3);
+            printPadded("Press to set month");
+        }
+        else if (stage == 1)
+        {
+            lcd.setCursor(0, 2);
+            printPadded("L/R to change month");
+            lcd.setCursor(0, 3);
+            printPadded("Press to set year");
+        }
+        else if (stage == 2)
+        {
+            lcd.setCursor(0, 2);
+            printPadded("L/R to change year");
+            lcd.setCursor(0, 3);
+            printPadded("Press to save");
+        }
     }
 
     void navigate(int8_t direction)
@@ -477,10 +496,77 @@ bool menuTick()
 
     if (uiMode == UI_EDIT_DATE)
     {
+        static uint8_t dateStage = 0; // 0 = editing day, 1 = editing month, 2 = editing year
+        static int lastDay = day();
+        static int lastMonth = month();
+        static int lastYear = year();
+
+        if (enc.right())
+        {
+            if (dateStage == 0)
+            {
+                lastDay = (lastDay - 1 + 31) % 31;
+                if (lastDay == 0)
+                    lastDay = 31;
+                renderDateEditor(dateStage, lastDay, lastMonth, lastYear);
+            }
+            else if (dateStage == 1)
+            {
+                lastMonth = (lastMonth - 1 + 12) % 12;
+                if (lastMonth == 0)
+                    lastMonth = 12;
+                renderDateEditor(dateStage, lastDay, lastMonth, lastYear);
+            }
+            else if (dateStage == 2)
+            {
+                lastYear--;
+                renderDateEditor(dateStage, lastDay, lastMonth, lastYear);
+            }
+        }
+
+        if (enc.left())
+        {
+            if (dateStage == 0)
+            {
+                lastDay = (lastDay + 1) % 31;
+                if (lastDay == 0)
+                    lastDay = 1;
+                renderDateEditor(dateStage, lastDay, lastMonth, lastYear);
+            }
+            else if (dateStage == 1)
+            {
+                lastMonth = (lastMonth + 1) % 12;
+                if (lastMonth == 0)
+                    lastMonth = 1;
+                renderDateEditor(dateStage, lastDay, lastMonth, lastYear);
+            }
+            else if (dateStage == 2)
+            {
+                lastYear++;
+                renderDateEditor(dateStage, lastDay, lastMonth, lastYear);
+            }
+        }
+
         if (enc.press())
         {
-            uiMode = UI_MENU;
-            renderMenu();
+            setTime(hour(), minute(), second(), lastDay, lastMonth, lastYear);
+
+            if (dateStage == 0)
+            {
+                dateStage = 1;
+                renderDateEditor(dateStage, lastDay, lastMonth, lastYear);
+            }
+            else if (dateStage == 1)
+            {
+                dateStage = 2;
+                renderDateEditor(dateStage, lastDay, lastMonth, lastYear);
+            }
+            else if (dateStage == 2)
+            {
+                dateStage = 0;
+                uiMode = UI_MENU;
+                renderMenu();
+            }
         }
     }
 
